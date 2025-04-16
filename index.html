@@ -1,36 +1,126 @@
-<HTML>
+<!DOCTYPE html>
+<html>
 <head>
-    <script>
-        window.onload = function() {
-            var img = new Image();
-            img.onload = function() {
-                invertColor(this);
-            };
-            img.src = "leapingkitten.jpg";
-        };
-
-        function invertColor(img) {
-            var canvas = document.getElementById("mycanvas");
-            var context = canvas.getContext("2d");
-            // draw image at top-left corner
-            context.drawImage(img, 0, 0);
-            // draw original image right beside the previous image
-            context.drawImage(img, img.width, 0);
-            // get ImageData object from the left image
-            var imageData = context.getImageData(0, 0, img.width, img.height);
-            var data = imageData.data;
-            
-            for (var i = 0; i < data.length; i += 4) {
-                data[i] = 255 - data[i]; // red
-                data[i + 1] = 255 - data[i + 1]; // green
-                data[i + 2] = 255 - data[i + 2]; // blue
-                data[i + 3] = 255; // alpha
-            }
-            context.putImageData(imageData, 0, 0);
+    <title>Video with Canny Edge Detection</title>
+    <script async src="https://docs.opencv.org/4.5.5/opencv.js" onload="onOpenCvReady();"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: sans-serif;
+            padding-top: 20px;
         }
-    </script>
+        #media-container {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+        video, canvas {
+            width: 1280px;
+            height: 720px;
+            margin: 0;
+            padding: 0;
+            border: 1px solid black;
+        }
+        #status {
+            font-style: italic;
+            margin-top: 5px;
+        }
+    </style>
 </head>
 <body>
-    <canvas id="mycanvas" width="600" height="250"></canvas>
+    <div id="media-container">
+        <video id="myVideo" width="1280" height="720" controls muted playsinline>
+            <source src="vid.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+        <canvas id="mycanvas"></canvas>
+    </div>
+    <div id="status">Loading OpenCV...</div>
+
+    <script>
+        let video = document.getElementById("myVideo");
+        let canvas = document.getElementById("mycanvas");
+        let ctx = canvas.getContext('2d');
+        let statusElement = document.getElementById("status");
+
+        let src = null, gray = null, edges = null;
+        let streaming = false;
+
+        function initMats(width, height) {
+            if (src) src.delete();
+            if (gray) gray.delete();
+            if (edges) edges.delete();
+            src = new cv.Mat(height, width, cv.CV_8UC4);
+            gray = new cv.Mat(height, width, cv.CV_8UC1);
+            edges = new cv.Mat(height, width, cv.CV_8UC1);
+        }
+
+        function updateDimensions() {
+            video.width = video.videoWidth;
+            video.height = video.videoHeight;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            initMats(video.videoWidth, video.videoHeight);
+        }
+
+        function processVideo() {
+            if (!streaming) return;
+            if (!src || src.isDeleted() || !gray || gray.isDeleted() || !edges || edges.isDeleted()) {
+                streaming = false;
+                statusElement.textContent = "Error: Mat deleted.";
+                return;
+            }
+
+            try {
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                src.data.set(ctx.getImageData(0, 0, canvas.width, canvas.height).data);
+                cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+                cv.Canny(gray, edges, 50, 100, 3, false);
+                cv.imshow("mycanvas", edges);
+                requestAnimationFrame(processVideo);
+            } catch (err) {
+                statusElement.textContent = `Error: ${err.message}`;
+                streaming = false;
+                cleanupMats();
+            }
+        }
+
+        function cleanupMats() {
+            if (src) { src.delete(); src = null; }
+            if (gray) { gray.delete(); gray = null; }
+            if (edges) { edges.delete(); edges = null; }
+        }
+
+        function onOpenCvReady() {
+            statusElement.textContent = "OpenCV.js is ready.";
+
+            video.addEventListener("loadedmetadata", () => {
+                
+                updateDimensions();
+            });
+
+            video.addEventListener("play", () => {
+                updateDimensions();
+                if (!streaming && src && gray && edges) {
+                    streaming = true;
+                    requestAnimationFrame(processVideo);
+                    statusElement.textContent = "Processing video...";
+                }
+            });
+
+            video.addEventListener("pause", () => {
+                streaming = false;
+                statusElement.textContent = "Video paused.";
+            });
+
+            video.addEventListener("ended", () => {
+                streaming = false;
+                statusElement.textContent = "Video ended.";
+            });
+        }
+    </script>
 </body>
-</HTML>
+</html>
